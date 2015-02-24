@@ -23,12 +23,13 @@
 
 #![feature(core)]
 #![feature(hash)]
+#![feature(test)]
 #![allow(unused_assignments, unused_variables)] // `read_ptr!`
 
 #[macro_use] extern crate core;
 
-#[cfg(test)]
-extern crate test;
+
+#[cfg(test)] extern crate test;
 
 use std::mem::{uninitialized, transmute};
 use std::num::Int;
@@ -36,8 +37,6 @@ use std::raw::{Repr};
 use std::ptr::{copy_memory};
 use std::hash::{Hash, Hasher};
 use std::default::Default;
-
-#[cfg(test)] use test::Bencher;
 
 pub mod macros;
 pub mod xxh32;
@@ -268,201 +267,207 @@ pub fn hash_with_seed<T: Hash>(seed: u64, value: &T) -> u64 { #![inline]
     state.finish()
 }
 
-/// the official sanity test
-#[cfg(test)]
-fn test_base<F>(f: F) where F: Fn(&[u8], u64) -> u64 {
-    static BUFSIZE: usize = 101;
-    static PRIME: u32 = 2654435761;
-
-    let mut random: u32 = PRIME;
-    let mut buf: Vec<u8> = Vec::with_capacity(BUFSIZE);
-    for _ in range(0, BUFSIZE) {
-        buf.push((random >> 24) as u8);
-        random *= random;
-    }
-
-    let test = |&: size: usize, seed: u64, expected: u64| {
-        let result = f(buf.slice_to(size), seed);
-        assert_eq!(result, expected);
-    };
-
-    test(1,                0,             0x4FCE394CC88952D8);
-    test(1,                PRIME as u64,  0x739840CB819FA723);
-    test(14,               0,             0xCFFA8DB881BC3A3D);
-    test(14,               PRIME as u64,  0x5B9611585EFCC9CB);
-    test(BUFSIZE,          0,             0x0EAB543384F878AD);
-    test(BUFSIZE,          PRIME as u64,  0xCAA65939306F1E21);
-}
 
 #[cfg(test)]
-#[inline(always)]
-fn bench_base<F>(bench: &mut Bencher, f: F )
-    where F: Fn(&[u8]) -> u64
-{
-    static BUFSIZE: usize = 64*1024;
+mod tests {
+    use test::Bencher;
+    use std::hash::Hasher;
+    use super::*;
 
-    let mut v: Vec<u8> = Vec::with_capacity(BUFSIZE);
-    for i in range(0, BUFSIZE) {
-        v.push(i as u8);
-    }
+    /// the official sanity test
+    fn test_base<F>(f: F) where F: Fn(&[u8], u64) -> u64 {
+        static BUFSIZE: usize = 101;
+        static PRIME: u32 = 2654435761;
 
-    bench.iter( || f(v.as_slice()) );
-    bench.bytes = BUFSIZE as u64;
-}
-
-#[test]
-fn test_oneshot() {
-    test_base(|v, seed|{
-        let mut state = XXHasher::new_with_seed(seed);
-        state.write(v);
-        state.finish()
-    })
-}
-
-#[test]
-fn test_chunks() {
-    test_base(|v, seed|{
-        let mut state = XXHasher::new_with_seed(seed);
-        for chunk in v.chunks(15) {
-            state.write(chunk);
+        let mut random: u32 = PRIME;
+        let mut buf: Vec<u8> = Vec::with_capacity(BUFSIZE);
+        for _ in range(0, BUFSIZE) {
+            buf.push((random >> 24) as u8);
+            random *= random;
         }
-        state.finish()
-    })
-}
 
-#[bench]
-fn bench_64k_oneshot(b: &mut Bencher) {
-    bench_base(b, |&: v| oneshot(v, 0))
-}
+        let test = |&: size: usize, seed: u64, expected: u64| {
+            let result = f(&buf[..size], seed);
+            assert_eq!(result, expected);
+        };
 
-/*
+        test(1,                0,             0x4FCE394CC88952D8);
+        test(1,                PRIME as u64,  0x739840CB819FA723);
+        test(14,               0,             0xCFFA8DB881BC3A3D);
+        test(14,               PRIME as u64,  0x5B9611585EFCC9CB);
+        test(BUFSIZE,          0,             0x0EAB543384F878AD);
+        test(BUFSIZE,          PRIME as u64,  0xCAA65939306F1E21);
+    }
+
+    #[inline(always)]
+    fn bench_base<F>(bench: &mut Bencher, f: F )
+        where F: Fn(&[u8]) -> u64
+    {
+        static BUFSIZE: usize = 64*1024;
+
+        let mut v: Vec<u8> = Vec::with_capacity(BUFSIZE);
+        for i in range(0, BUFSIZE) {
+            v.push(i as u8);
+        }
+
+        bench.iter( || f(v.as_slice()) );
+        bench.bytes = BUFSIZE as u64;
+    }
+
+    #[test]
+    fn test_oneshot() {
+        test_base(|v, seed|{
+            let mut state = XXHasher::new_with_seed(seed);
+            state.write(v);
+            state.finish()
+        })
+    }
+
+    #[test]
+    fn test_chunks() {
+        test_base(|v, seed|{
+            let mut state = XXHasher::new_with_seed(seed);
+            for chunk in v.chunks(15) {
+                state.write(chunk);
+            }
+            state.finish()
+        })
+    }
+
+    #[bench]
+    fn bench_64k_oneshot(b: &mut Bencher) {
+        bench_base(b, |&: v| oneshot(v, 0))
+    }
+
+    /*
     * The following tests match those of SipHash.
     */
 
-
-#[test] #[cfg(target_arch = "arm")]
-fn test_hash_usize() {
-    let val = 0xdeadbeef_deadbeef_u64;
-    assert!(hash(&(val as u64)) != hash(&(val as usize)));
-    assert_eq!(hash(&(val as u32)), hash(&(val as usize)));
-}
-#[test] #[cfg(target_arch = "x86_64")]
-fn test_hash_usize() {
-    let val = 0xdeadbeef_deadbeef_u64;
-    assert_eq!(hash(&(val as u64)), hash(&(val as usize)));
-    assert!(hash(&(val as u32)) != hash(&(val as usize)));
-}
-#[test] #[cfg(target_arch = "x86")]
-fn test_hash_usize() {
-    let val = 0xdeadbeef_deadbeef_u64;
-    assert!(hash(&(val as u64)) != hash(&(val as usize)));
-    assert_eq!(hash(&(val as u32)), hash(&(val as usize)));
-}
-
-#[test]
-fn test_hash_idempotent() {
-    let val64 = 0xdeadbeef_deadbeef_u64;
-    assert_eq!(hash(&val64), hash(&val64));
-    let val32 = 0xdeadbeef_u32;
-    assert_eq!(hash(&val32), hash(&val32));
-}
-
-#[test]
-fn test_hash_no_bytes_dropped_64() {
-    let val = 0xdeadbeef_deadbeef_u64;
-
-    assert!(hash(&val) != hash(&zero_byte(val, 0)));
-    assert!(hash(&val) != hash(&zero_byte(val, 1)));
-    assert!(hash(&val) != hash(&zero_byte(val, 2)));
-    assert!(hash(&val) != hash(&zero_byte(val, 3)));
-    assert!(hash(&val) != hash(&zero_byte(val, 4)));
-    assert!(hash(&val) != hash(&zero_byte(val, 5)));
-    assert!(hash(&val) != hash(&zero_byte(val, 6)));
-    assert!(hash(&val) != hash(&zero_byte(val, 7)));
-
-    fn zero_byte(val: u64, byte: usize) -> u64 {
-        assert!(byte < 8);
-        val & !(0xff << (byte * 8))
+    #[test] #[cfg(target_arch = "arm")]
+    fn test_hash_usize() {
+        let val = 0xdeadbeef_deadbeef_u64;
+        assert!(hash(&(val as u64)) != hash(&(val as usize)));
+        assert_eq!(hash(&(val as u32)), hash(&(val as usize)));
     }
-}
-
-#[test]
-fn test_hash_no_bytes_dropped_32() {
-    let val = 0xdeadbeef_u32;
-
-    assert!(hash(&val) != hash(&zero_byte(val, 0)));
-    assert!(hash(&val) != hash(&zero_byte(val, 1)));
-    assert!(hash(&val) != hash(&zero_byte(val, 2)));
-    assert!(hash(&val) != hash(&zero_byte(val, 3)));
-
-    fn zero_byte(val: u32, byte: usize) -> u32 {
-        assert!(byte < 4);
-        val & !(0xff << (byte * 8))
+    #[test] #[cfg(target_arch = "x86_64")]
+    fn test_hash_usize() {
+        let val = 0xdeadbeef_deadbeef_u64;
+        assert_eq!(hash(&(val as u64)), hash(&(val as usize)));
+        assert!(hash(&(val as u32)) != hash(&(val as usize)));
     }
-}
+    #[test] #[cfg(target_arch = "x86")]
+    fn test_hash_usize() {
+        let val = 0xdeadbeef_deadbeef_u64;
+        assert!(hash(&(val as u64)) != hash(&(val as usize)));
+        assert_eq!(hash(&(val as u32)), hash(&(val as usize)));
+    }
 
-#[test]
-fn test_hash_no_concat_alias() {
-    let s = ("aa", "bb");
-    let t = ("aabb", "");
-    let u = ("a", "abb");
+    #[test]
+    fn test_hash_idempotent() {
+        let val64 = 0xdeadbeef_deadbeef_u64;
+        assert_eq!(hash(&val64), hash(&val64));
+        let val32 = 0xdeadbeef_u32;
+        assert_eq!(hash(&val32), hash(&val32));
+    }
 
-    assert!(s != t && t != u);
-    assert!(hash(&s) != hash(&t) && hash(&s) != hash(&u));
+    #[test]
+    fn test_hash_no_bytes_dropped_64() {
+        let val = 0xdeadbeef_deadbeef_u64;
 
-    let v: (&[u8], &[u8], &[u8]) = (&[1u8], &[0u8, 0], &[0u8]);
-    let w: (&[u8], &[u8], &[u8]) = (&[1u8, 0, 0, 0], &[], &[]);
+        assert!(hash(&val) != hash(&zero_byte(val, 0)));
+        assert!(hash(&val) != hash(&zero_byte(val, 1)));
+        assert!(hash(&val) != hash(&zero_byte(val, 2)));
+        assert!(hash(&val) != hash(&zero_byte(val, 3)));
+        assert!(hash(&val) != hash(&zero_byte(val, 4)));
+        assert!(hash(&val) != hash(&zero_byte(val, 5)));
+        assert!(hash(&val) != hash(&zero_byte(val, 6)));
+        assert!(hash(&val) != hash(&zero_byte(val, 7)));
 
-    assert!(v != w);
-    assert!(hash(&v) != hash(&w));
-}
+        fn zero_byte(val: u64, byte: usize) -> u64 {
+            assert!(byte < 8);
+            val & !(0xff << (byte * 8))
+        }
+    }
 
-#[bench]
-fn bench_str_under_8_bytes(b: &mut Bencher) {
-    let s = "foo";
-    b.bytes=s.len() as u64;
-    b.iter(|| {
-        hash(&s)
-    })
-}
+    #[test]
+    fn test_hash_no_bytes_dropped_32() {
+        let val = 0xdeadbeef_u32;
 
-#[bench]
-fn bench_str_of_8_bytes(b: &mut Bencher) {
-    let s = "foobar78";
-    b.bytes = s.len() as u64;
-    b.iter(|| {
-        hash(&s);
-    })
-}
+        assert!(hash(&val) != hash(&zero_byte(val, 0)));
+        assert!(hash(&val) != hash(&zero_byte(val, 1)));
+        assert!(hash(&val) != hash(&zero_byte(val, 2)));
+        assert!(hash(&val) != hash(&zero_byte(val, 3)));
 
-#[bench]
-fn bench_str_over_8_bytes(b: &mut Bencher) {
-    let s = "foobarbaz0";
-    b.bytes = s.len() as u64;
-    b.iter(|| {
-        hash(&s)
-    })
-}
+        fn zero_byte(val: u32, byte: usize) -> u32 {
+            assert!(byte < 4);
+            val & !(0xff << (byte * 8))
+        }
+    }
 
-#[bench]
-fn bench_long_str(b: &mut Bencher) {
-    let s = "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor \
+    #[test]
+    fn test_hash_no_concat_alias() {
+        let s = ("aa", "bb");
+        let t = ("aabb", "");
+        let u = ("a", "abb");
+
+        assert!(s != t && t != u);
+        assert!(hash(&s) != hash(&t) && hash(&s) != hash(&u));
+
+        let v: (&[u8], &[u8], &[u8]) = (&[1u8], &[0u8, 0], &[0u8]);
+        let w: (&[u8], &[u8], &[u8]) = (&[1u8, 0, 0, 0], &[], &[]);
+
+        assert!(v != w);
+        assert!(hash(&v) != hash(&w));
+    }
+
+    #[bench]
+    fn bench_str_under_8_bytes(b: &mut Bencher) {
+        let s = "foo";
+        b.bytes=s.len() as u64;
+        b.iter(|| {
+            hash(&s)
+        })
+    }
+
+    #[bench]
+    fn bench_str_of_8_bytes(b: &mut Bencher) {
+        let s = "foobar78";
+        b.bytes = s.len() as u64;
+        b.iter(|| {
+            hash(&s);
+        })
+    }
+
+    #[bench]
+    fn bench_str_over_8_bytes(b: &mut Bencher) {
+        let s = "foobarbaz0";
+        b.bytes = s.len() as u64;
+        b.iter(|| {
+            hash(&s)
+        })
+    }
+
+    #[bench]
+    fn bench_long_str(b: &mut Bencher) {
+        let s = "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor \
 incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud \
 exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute \
 irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla \
 pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui \
 officia deserunt mollit anim id est laborum.";
-    b.bytes = s.len() as u64;
-    b.iter(|| {
-        hash(&s)
-    })
-}
+        b.bytes = s.len() as u64;
+        b.iter(|| {
+            hash(&s)
+        })
+    }
 
-#[bench]
-fn bench_u64(b: &mut Bencher) {
-    let u = 16262950014981195938u64;
-    b.bytes = 8;
-    b.iter(|| {
-        hash(&u)
-    })
+    #[bench]
+    fn bench_u64(b: &mut Bencher) {
+        let u = 16262950014981195938u64;
+        b.bytes = 8;
+        b.iter(|| {
+            hash(&u)
+        })
+    }
+
 }
