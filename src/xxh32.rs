@@ -2,7 +2,7 @@ use std::mem::{uninitialized,transmute};
 use std::num::Int;
 use std::raw::{Repr};
 use std::ptr::{copy_memory};
-use std::hash::{Hash, Hasher, Writer};
+use std::hash::{Hash, Hasher};
 use std::default::Default;
 
 #[cfg(test)] use test::Bencher;
@@ -20,7 +20,7 @@ static PRIME5: u32 = 374761393;
 pub fn oneshot(input: &[u8], seed: u32) -> u32 {
     let mut state = XXHasher::new_with_seed(seed);
     state.write(input);
-    state.finish()
+    state.finish() as u32
 }
 
 #[derive(Copy)]
@@ -37,6 +37,7 @@ pub struct XXHasher {
 }
 
 impl XXHasher {
+
     pub fn new_with_seed(seed: u32) -> XXHasher { #![inline]
         // no need to write it twice
         let mut state: XXHasher = unsafe { uninitialized() };
@@ -48,9 +49,18 @@ impl XXHasher {
     pub fn new() -> XXHasher { #![inline]
         XXHasher::new_with_seed(0)
     }
+
+    pub fn reset(&mut self) { #![inline]
+        self.v1 = self.seed + PRIME1 + PRIME2;
+        self.v2 = self.seed + PRIME2;
+        self.v3 = self.seed;
+        self.v4 = self.seed - PRIME1;
+        self.total_len = 0;
+        self.memsize = 0;
+    }
 }
 
-impl Writer for XXHasher {
+impl Hasher for XXHasher {
     fn write(&mut self, input: &[u8]) { unsafe {
         let mem: *mut u8 = transmute(&self.memory);
         let mut rem: usize = input.len();
@@ -60,7 +70,7 @@ impl Writer for XXHasher {
 
         if self.memsize + rem < 16 {
             // not enough data for one 32-byte chunk, so just fill the buffer and return.
-            let dst: *mut u8 = mem.offset(self.memsize as int);
+            let dst: *mut u8 = mem.offset(self.memsize as isize);
             copy_memory(dst, data, rem);
             self.memsize += rem;
             return;
@@ -69,7 +79,7 @@ impl Writer for XXHasher {
         if self.memsize != 0 {
             // some data left from previous update
             // fill the buffer and eat it
-            let dst: *mut u8 = mem.offset(self.memsize as int);
+            let dst: *mut u8 = mem.offset(self.memsize as isize);
             let bump: usize = 16 - self.memsize;
             copy_memory(dst, data, bump);
             let mut p: *const u8 = transmute(mem);
@@ -93,7 +103,7 @@ impl Writer for XXHasher {
             self.v3 = v3;
             self.v4 = v4;
 
-            data = data.offset(bump as int);
+            data = data.offset(bump as isize);
             rem -= bump;
             self.memsize = 0;
         }
@@ -125,22 +135,9 @@ impl Writer for XXHasher {
             self.memsize = rem;
         }
     }}
-}
-
-impl Hasher for XXHasher {
-    type Output = u32;
-
-    fn reset(&mut self) { #![inline]
-        self.v1 = self.seed + PRIME1 + PRIME2;
-        self.v2 = self.seed + PRIME2;
-        self.v3 = self.seed;
-        self.v4 = self.seed - PRIME1;
-        self.total_len = 0;
-        self.memsize = 0;
-    }
 
     /// Can be called on intermediate states
-    fn finish(&self) -> u32 { unsafe {
+    fn finish(&self) -> u64 { unsafe {
         let mut rem = self.memsize;
         let mut h32: u32 = if self.total_len < 16 {
             self.seed + PRIME5
@@ -169,7 +166,7 @@ impl Hasher for XXHasher {
         h32 *= PRIME3;
         h32 ^= h32 >> 16;
 
-        h32
+        h32 as u64
     }}
 }
 
@@ -185,16 +182,16 @@ impl Default for XXHasher {
     }
 }
 
-pub fn hash<T: Hash<XXHasher>>(value: &T) -> u64 { #![inline]
+pub fn hash<T: Hash>(value: &T) -> u64 { #![inline]
     let mut state = XXHasher::new_with_seed(0);
     value.hash(&mut state);
-    state.finish() as u64
+    state.finish()
 }
 
-pub fn hash_with_seed<T: Hash<XXHasher>>(seed: u64, value: &T) -> u64 { #![inline]
+pub fn hash_with_seed<T: Hash>(seed: u64, value: &T) -> u64 { #![inline]
     let mut state = XXHasher::new_with_seed(seed as u32);
     value.hash(&mut state);
-    state.finish() as u64
+    state.finish()
 }
 
 /// the official sanity test
