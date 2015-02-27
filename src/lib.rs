@@ -34,7 +34,7 @@
 use std::mem::{uninitialized, transmute};
 use std::num::Int;
 use std::raw::{Repr};
-use std::ptr::{copy_memory};
+use std::ptr::{copy};
 use std::hash::{Hash, Hasher};
 use std::default::Default;
 
@@ -111,7 +111,7 @@ impl Hasher for XXHasher {
         // so just fill the buffer and return.
         if self.memsize + rem < 32 {
             let dst: *mut u8 = mem.offset(self.memsize as isize);
-            copy_memory(dst, data, rem);
+            copy(dst, data, rem);
             self.memsize += rem;
             return;
         }
@@ -121,7 +121,7 @@ impl Hasher for XXHasher {
         if self.memsize != 0 {
             let dst: *mut u8 = mem.offset(self.memsize as isize);
             let bump: usize = 32 - self.memsize;
-            copy_memory(dst, data, bump);
+            copy(dst, data, bump);
 
             // `read_ptr!` target
             let mut p: *const u8 = transmute(mem);
@@ -181,7 +181,7 @@ impl Hasher for XXHasher {
 
         // we have data left, so save it
         if rem > 0 {
-            copy_memory(mem, data, rem);
+            copy(mem, data, rem);
             self.memsize = rem;
         }
     }}

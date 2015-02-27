@@ -1,7 +1,7 @@
 use std::mem::{uninitialized,transmute};
 use std::num::Int;
 use std::raw::{Repr};
-use std::ptr::{copy_memory};
+use std::ptr::{copy};
 use std::hash::{Hash, Hasher};
 use std::default::Default;
 
@@ -69,7 +69,7 @@ impl Hasher for XXHasher {
         if self.memsize + rem < 16 {
             // not enough data for one 32-byte chunk, so just fill the buffer and return.
             let dst: *mut u8 = mem.offset(self.memsize as isize);
-            copy_memory(dst, data, rem);
+            copy(dst, data, rem);
             self.memsize += rem;
             return;
         }
@@ -79,7 +79,7 @@ impl Hasher for XXHasher {
             // fill the buffer and eat it
             let dst: *mut u8 = mem.offset(self.memsize as isize);
             let bump: usize = 16 - self.memsize;
-            copy_memory(dst, data, bump);
+            copy(dst, data, bump);
             let mut p: *const u8 = transmute(mem);
             let mut r: usize = 32;
 
@@ -129,7 +129,7 @@ impl Hasher for XXHasher {
         }
 
         if rem > 0 {
-            copy_memory(mem, data, rem);
+            copy(mem, data, rem);
             self.memsize = rem;
         }
     }}
