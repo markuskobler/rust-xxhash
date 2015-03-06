@@ -212,7 +212,7 @@ mod tests {
              random *= random;
          }
 
-         let test = |&: size: usize, seed: u32, expected: u32| {
+         let test = |size: usize, seed: u32, expected: u32| {
              let result = f(&buf[..size], seed);
              assert_eq!(result, expected);
          };
@@ -236,13 +236,13 @@ mod tests {
              v.push(i as u8);
          }
 
-         bench.iter( |&:| f(v.as_slice()) );
+         bench.iter( || f(v.as_slice()) );
          bench.bytes = BUFSIZE as u64;
     }
 
     #[test]
     fn test_oneshot() {
-        test_base(|&: v, seed|{
+        test_base(|v, seed|{
             let mut state = XXHasher::new_with_seed(seed);
             state.write(v);
             state.finish() as u32

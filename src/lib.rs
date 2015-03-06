@@ -24,10 +24,10 @@
 #![feature(core)]
 #![feature(hash)]
 #![feature(test)]
+#![allow(unused_features)] // needed for #![feature(test)]
 #![allow(unused_assignments, unused_variables)] // `read_ptr!`
 
 #[macro_use] extern crate core;
-
 
 #[cfg(test)] extern crate test;
 
@@ -286,7 +286,7 @@ mod tests {
             random *= random;
         }
 
-        let test = |&: size: usize, seed: u64, expected: u64| {
+        let test = |size: usize, seed: u64, expected: u64| {
             let result = f(&buf[..size], seed);
             assert_eq!(result, expected);
         };
@@ -336,7 +336,7 @@ mod tests {
 
     #[bench]
     fn bench_64k_oneshot(b: &mut Bencher) {
-        bench_base(b, |&: v| oneshot(v, 0))
+        bench_base(b, |v| oneshot(v, 0))
     }
 
     /*
